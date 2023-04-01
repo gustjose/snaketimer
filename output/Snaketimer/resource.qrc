@@ -1,0 +1,17 @@
+<RCC>
+  <qresource prefix="root">
+    <file>img/banner.png</file>
+    <file>img/pause.ico</file>
+    <file>img/bell.ico</file>
+    <file>img/switch-off.ico</file>
+    <file>img/switch-on.ico</file>
+    <file>img/30-segundos-em-um-cronometro.ico</file>
+    <file>img/cronometro.ico</file>
+    <file>img/gear.ico</file>
+    <file>img/icon.ico</file>
+    <file>img/info.ico</file>
+    <file>img/play-button-arrowhead.ico</file>
+    <file>img/pomodoro.ico</file>
+    <file>img/restart.ico</file>
+  </qresource>
+</RCC>
