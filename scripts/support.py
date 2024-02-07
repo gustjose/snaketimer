@@ -23,3 +23,9 @@ def convert_ct(segundos):
     temp = h_o[-2:] + ":" + m_o[-2:] + ":" + s_o[-2:]
 
     return temp
+
+def convert_to_seconds(time_str):
+    hours, minutes, seconds = map(int, time_str.split(':'))
+    total_seconds = hours * 3600 + minutes * 60 + seconds
+    
+    return total_seconds

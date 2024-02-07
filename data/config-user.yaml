@@ -1,0 +1,7 @@
+Pomodoro:
+  alert: true
+  autoplay: false
+  filealert: beep.mp3
+  long_break: 15
+  short_break: 5
+  time: 45

@@ -1,341 +1,161 @@
-import sys, shutil
-from tinydb import TinyDB, Query
+import sys, shutil, yaml
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMessageBox, QFileDialog, QSystemTrayIcon
 from PyQt5.QtGui import QIcon
-from PyQt5.QtCore import QFileInfo
+from PyQt5.QtCore import QFileInfo, QTimer
 from assets.interface import Ui_MainWindow
-from time import sleep
-from threading import Thread
 import scripts
 
 app = QtWidgets.QApplication(sys.argv)
-tray_icon = QSystemTrayIcon(QIcon('assets\img\icon.ico'), parent=None)
+tray_icon = QSystemTrayIcon(QIcon('assets/img/icon.ico'), parent=None)
 tray_icon.setToolTip('Snaketimer')
 
-db = TinyDB('db.json', indent=4, ensure_ascii=False)
-busca = Query()
+def restart():
+    sys.exit(app.exec())
+
+def carregar_config():
+    try:
+        with open('data/config-user.yaml', 'r') as file:
+            return yaml.safe_load(file)
+    except FileNotFoundError:
+        QMessageBox.warning(None, "File Not Found", "Config file not found.")
+        sys.exit(1)
+    except yaml.YAMLError as e:
+        QMessageBox.warning(None, "YAML Error", f"Error loading config file: {e}")
+        sys.exit(1)
+    
+def salvar_config(config):
+    try:
+        with open('data/config-user.yaml', 'w') as file:
+            yaml.dump(config, file)
+    except IOError as e:
+        QMessageBox.warning(None, "IO Error", f"Error saving config file: {e}")
+
+configUser = carregar_config()
+dataUser = {
+    'alert': configUser['Pomodoro']['alert'],
+    'autoplay': configUser['Pomodoro']['autoplay'],
+    'filealert': configUser['Pomodoro']['filealert'],
+    'long_break': configUser['Pomodoro']['long_break'],
+    'short_break': configUser['Pomodoro']['short_break'],
+    'pomodoro': configUser['Pomodoro']['time']
+}
 
 class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def __init__(self, *args, obj=None, **kwargs):
         super(MainWindow, self).__init__(*args, **kwargs)
         self.setupUi(self)
 
-        self.btn_cronometro.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(0))
-        self.btn_pomodoro.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(2))
-        self.btn_regressivo.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(3))
-        self.btn_pm_config.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(4))
-        self.btn_info.clicked.connect(lambda: self.stackedWidget.setCurrentIndex(1))
+        self.btn_cronometro.clicked.connect(self.set_current_index_0)
+        self.btn_pomodoro.clicked.connect(self.set_current_index_2)
+        self.btn_regressivo.clicked.connect(self.set_current_index_3)
+        self.btn_pm_config.clicked.connect(self.set_current_index_4)
+        self.btn_info.clicked.connect(self.set_current_index_1)
 
-        self.btn_st_start.clicked.connect(lambda: Thread(target=start_timer, args=(self.lb_st_contador.text(),)).start())
-        self.btn_st_stop.clicked.connect(lambda: stop_timer())
-        self.btn_st_reset.clicked.connect(lambda: reset_timer())
-        self.btn_pm_salvar.clicked.connect(lambda: alterar_config())
+        self.btn_pm_salvar.clicked.connect(self.alterar_config)
 
-        self.btn_pm_start.clicked.connect(lambda: Thread(target=start_pm, args=(self.lb_pm_contador.text(),)).start())
-        self.pushButton.clicked.connect(lambda: stop_pm())
-        self.btn_pm_reset.clicked.connect(lambda: reset_pm())
-        self.btn_pm_p1.clicked.connect(lambda: btn_pm_pomodoro())
-        self.btn_pm_p2.clicked.connect(lambda: btn_pm_shortbreak())
-        self.btn_pm_p3.clicked.connect(lambda: btn_pm_longbreak())
-        self.btn_pm_p3.clicked.connect(lambda: btn_pm_longbreak())
-        self.pushButton_2.clicked.connect(lambda: sound_fname())
+        self.pushButton_2.clicked.connect(self.sound_fname)
 
-        self.btn_ct_save.clicked.connect(lambda: alterar_config_ct())
-        self.btn_ct_start.clicked.connect(lambda: Thread(target=start_ct, args=(self.lb_ct_contador.text(),)).start())
-        self.btn_ct_stop.clicked.connect(lambda: stop_ct())
-        self.btn_ct_reset.clicked.connect(lambda: reset_ct())
+        self.label_2.setText(configUser['Pomodoro']['filealert'])
 
-        self.label_2.setText(db.get(busca.type == 'sound')['filename'])
-        def sound_fname():
-            filelocalname = QFileDialog.getOpenFileName(self, 'Open file','./assets/sound',"Sound files (*.mp3 *.wav)")
-            fname = QFileInfo(filelocalname[0]).fileName()
+        self.timer = QTimer(self)
+        self.stopwatch = scripts.Stopwatch(self.lb_st_contador, self.timer)
 
-            shutil.copy(filelocalname[0], './assets/sound')
-            db.update({'filename': fname}, busca.type == 'sound')
-            
+        self.btn_st_start.clicked.connect(self.stopwatch.start_timer)
+        self.btn_st_stop.clicked.connect(self.stopwatch.stop_timer)
+        self.btn_st_reset.clicked.connect(self.stopwatch.reset_timer)
+        self.timer.timeout.connect(self.stopwatch.update_timer_label)
+
+        self.timer_countdown = QTimer(self)
+        self.countdown = scripts.Countdown(self.lb_ct_contador, self.timer_countdown, dataUser['alert'])
+
+        self.btn_ct_start.clicked.connect(self.start_countdown)
+        self.btn_ct_stop.clicked.connect(self.countdown.stop_timer)
+        self.btn_ct_reset.clicked.connect(self.reset_countdown)
+        self.btn_ct_save.clicked.connect(self.alterar_config_ct)
+
+        self.lb_pm_contador.setText(scripts.convert_time(dataUser['pomodoro']))
+        self.spinBox_pm.setValue(dataUser['pomodoro'])
+        self.spinBox_lb.setValue(dataUser['long_break'])
+        self.spinBox_sb.setValue(dataUser['short_break'])
+        self.checkBox_alert.setChecked(dataUser['alert'])
+        self.checkBox_autoplay.setChecked(dataUser['autoplay'])
+
+        self.timer_pomodoro = QTimer(self)
+        self.pomodoro = scripts.Pomodoro(self.lb_pm_contador, self.timer_pomodoro, dataUser)
+        self.btn_pm_p1.clicked.connect(lambda: self.pomodoro.trocar_pomodoro(dataUser['pomodoro']))
+        self.btn_pm_p2.clicked.connect(lambda: self.pomodoro.trocar_pomodoro(dataUser['short_break']))
+        self.btn_pm_p3.clicked.connect(lambda: self.pomodoro.trocar_pomodoro(dataUser['long_break']))
+        self.btn_pm_start.clicked.connect(self.start_pomodoro)
+        self.pushButton.clicked.connect(self.pomodoro.stop_timer)
+        self.btn_pm_reset.clicked.connect(self.pomodoro.reset_timer)
+
+    def set_current_index_0(self):
+        self.stackedWidget.setCurrentIndex(0)
+
+    def set_current_index_1(self):
+        self.stackedWidget.setCurrentIndex(1)
+
+    def set_current_index_2(self):
+        self.stackedWidget.setCurrentIndex(2)
+
+    def set_current_index_3(self):
+        self.stackedWidget.setCurrentIndex(3)
+
+    def set_current_index_4(self):
+        self.stackedWidget.setCurrentIndex(4)
+
+    def sound_fname(self):
+        filelocalname, _ = QFileDialog.getOpenFileName(self, 'Open file','./assets/sound',"Sound files (*.mp3 *.wav)")
+        if filelocalname:
+            fname = QFileInfo(filelocalname).fileName()
+            shutil.copy(filelocalname, './assets/sound')
+            configUser['Pomodoro']['filealert'] = fname
             self.label_2.setText(fname)
+            salvar_config(configUser)
 
-    
-###################### STOPWATCH #########################################################################################
+    def start_countdown(self):
+        self.countdown.start_timer(scripts.convert_to_seconds(self.lb_ct_contador.text()))
 
-        iniciador = False
+    def reset_countdown(self):
+        self.countdown.reset_timer(scripts.convert_time(int(self.spinBox_ct.text())))
 
-        def reset_timer():
-            global iniciador
-            iniciador = False
-            sleep(0.8)
-            self.lb_st_contador.setText("00:00:00")
+    def alterar_config_ct(self):
+        self.lb_ct_contador.setText(scripts.convert_time(int(self.spinBox_ct.text())))
 
+    def start_pomodoro(self):
+        self.pomodoro.start_timer(scripts.convert_to_seconds(self.lb_pm_contador.text()))
 
-        def stop_timer():
+    def alterar_config(self):
+        pomodoro_value = int(self.spinBox_pm.text())
+        sb_value = int(self.spinBox_sb.text())
+        lb_value = int(self.spinBox_lb.text())
+        cb_alert_value = self.checkBox_alert.isChecked()
+        cb_autoplay_value = self.checkBox_autoplay.isChecked()
 
-            global iniciador
-            iniciador = False
-            self.btn_st_start.setEnabled(True)
+        try:
+            configUser['Pomodoro']['time'] = pomodoro_value
+            self.lb_pm_contador.setText(scripts.convert_time(pomodoro_value))
+            configUser['Pomodoro']['short_break'] = sb_value
+            configUser['Pomodoro']['long_break'] = lb_value
+            configUser['Pomodoro']['alert'] = cb_alert_value
+            configUser['Pomodoro']['autoplay'] = cb_autoplay_value
 
-        def start_timer(contador):
+            self.spinBox_pm.setValue(pomodoro_value)
+            self.spinBox_lb.setValue(lb_value)
+            self.spinBox_sb.setValue(sb_value)
 
-            reset_pm()
-            reset_ct1()
+            salvar_config(configUser)
+            QMessageBox.information(self, "Update data", "Saved successfully. Restarting application...")
+            restart()
 
-            self.btn_st_start.setEnabled(False)
+        except ValueError as e:
+            QMessageBox.warning(self, "Value Error", f"Invalid value: {e}")
+        except Exception as erro:
+            QMessageBox.warning(self, "Attention!", f"Error: {erro}")
 
-            global iniciador
-            iniciador = True
-            h,m,s = map(int, contador.split(":"))
-            total_segundos = h * 3600 + m * 60 + s
-
-            while iniciador is True:
-                total_segundos += 1
-                sleep(1)
-                self.lb_st_contador.setText(scripts.convert_ct(total_segundos))
-            else:
-                self.lb_st_contador.setText(scripts.convert_ct(total_segundos - 1))
-                self.btn_st_start.setEnabled(True)
-
-
-###################### POMODORO #########################################################################################
-
-        global ativo_timer
-        global n_repeticao
-
-        self.lb_pm_contador.setText(scripts.convert_time(db.get(busca.type == 'pomodoro')['tempo']))
-        self.spinBox_pm.setValue(db.get(busca.type == 'pomodoro')['tempo'])
-        self.spinBox_lb.setValue(db.get(busca.type == 'long-break')['tempo'])
-        self.spinBox_sb.setValue(db.get(busca.type == 'short-break')['tempo'])
-
-        self.checkBox_alert.setChecked(db.get(busca.type == 'alerta')['status'])
-        self.checkBox_autoplay.setChecked(db.get(busca.type == 'autoplay')['status'])
-
-        ativo_timer = 0
-        n_repeticao = 0
-
-        #CONFIG
-        def alterar_config():
-            pomodoro_value = int(self.spinBox_pm.text())
-            sb_value = int(self.spinBox_sb.text())
-            lb_value = int(self.spinBox_lb.text())
-            cb_alert_value = self.checkBox_alert.isChecked()
-            cb_autoplay_value = self.checkBox_autoplay.isChecked()
-
-            try:
-                db.update({'tempo': pomodoro_value}, busca.type == 'pomodoro')
-                self.lb_pm_contador.setText(scripts.convert_time(pomodoro_value))
-
-                db.update({'tempo': sb_value}, busca.type == 'short-break')
-                db.update({'tempo': lb_value}, busca.type == 'long-break')
-                db.update({'status': cb_alert_value}, busca.type == 'alerta')
-                db.update({'status': cb_autoplay_value}, busca.type == 'autoplay')
-
-                self.spinBox_pm.setValue(db.get(busca.type == 'pomodoro')['tempo'])
-                self.spinBox_lb.setValue(db.get(busca.type == 'long-break')['tempo'])
-                self.spinBox_sb.setValue(db.get(busca.type == 'short-break')['tempo'])
-
-                QMessageBox.information(self, "Update data", "Saved successfully.")
-            except Exception as erro:
-                QMessageBox.warning(self, "Attention!", f"Erro: {erro.__cause__}")
-        
-        #TIMER
-        def stop_pm():
-
-            global iniciador2
-            iniciador2 = False
-            self.btn_pm_start.setEnabled(True)
-        
-        def reset_pm():
-            global iniciador2
-            global ativo_timer
-
-            iniciador2 = False
-            sleep(1)
-
-            if ativo_timer != 0:
-                self.lb_pm_contador.setText(scripts.convert_time(ativo_timer))
-            else:
-                self.lb_pm_contador.setText(scripts.convert_time(db.get(busca.type == 'pomodoro')['tempo']))
-        
-        def start_pm(contador):
-
-            global n_repeticao
-
-            reset_timer()
-            reset_ct1()
-
-            self.btn_pm_start.setEnabled(False)
-
-            global iniciador2
-            iniciador2 = True
-            h,m,s = map(int, contador.split(":"))
-            total_segundos = h * 3600 + m * 60 + s
-
-            while iniciador2 is True:
-                if total_segundos > 0:
-                    total_segundos -= 1
-                    sleep(1)
-                    self.lb_pm_contador.setText(scripts.convert_ct(total_segundos))
-                else:
-                    if db.get(busca.type == 'autoplay')['status'] is True:
-                        if n_repeticao <= 3:
-                            n_repeticao += 1
-                            Thread(target=sb_start).start()
-                        else:
-                            Thread(target=lb_start).start()
-                        break
-                    else:
-                        if db.get(busca.type == 'alerta')['status'] is True:
-                            scripts.alert()
-                            tray_icon.showMessage('Pomodoro', 'The time is over!', QSystemTrayIcon.Information, 5000)
-                            self.btn_pm_start.setEnabled(True)
-                            break
-                    self.btn_pm_start.setEnabled(True)
-                    break
-            else:
-                self.lb_pm_contador.setText(scripts.convert_ct(total_segundos + 1))
-                self.btn_pm_start.setEnabled(True)
-
-        def sb_start():
-
-            tempo_sb = db.get(busca.type == 'short-break')['tempo']
-            text_pm = scripts.convert_time(db.get(busca.type == 'pomodoro')['tempo'])
-            text_sb = scripts.convert_time(tempo_sb)
-            self.lb_pm_contador.setText(text_sb)
-            self.btn_pm_start.setEnabled(False)
-
-            global iniciador2
-            iniciador2 = True
-
-            h,m,s = map(int, text_sb.split(":"))
-            total_segundos = h * 3600 + m * 60 + s
-
-            while iniciador2 is True:
-                if total_segundos > 0:
-                    total_segundos -= 1
-                    sleep(1)
-                    self.lb_pm_contador.setText(scripts.convert_ct(total_segundos))
-                else:
-                    break
-            else:
-                self.lb_pm_contador.setText(scripts.convert_ct(total_segundos + 1))
-                self.btn_pm_start.setEnabled(True)
-            Thread(target=start_pm, args=(text_pm,)).start()
-
-        def lb_start():
-            tempo_sb = db.get(busca.type == 'long-break')['tempo']
-            text_pm = scripts.convert_time(db.get(busca.type == 'pomodoro')['tempo'])
-            text_sb = scripts.convert_time(tempo_sb)
-            self.lb_pm_contador.setText(text_sb)
-            self.btn_pm_start.setEnabled(False)
-
-            global iniciador2, n_repeticao
-            iniciador2 = True
-
-            h,m,s = map(int, text_sb.split(":"))
-            total_segundos = h * 3600 + m * 60 + s
-
-            while iniciador2 is True:
-                if total_segundos > 0:
-                    total_segundos -= 1
-                    sleep(1)
-                    self.lb_pm_contador.setText(scripts.convert_ct(total_segundos))
-                else:
-                    n_repeticao = 0
-                    break
-            
-            self.btn_pm_start.setEnabled(True)
-            if db.get(busca.type == 'alerta')['status'] is True:
-                scripts.alert()
-                tray_icon.showMessage('Pomodoro', 'The time is over!', QSystemTrayIcon.Information, 5000)
-
-        def btn_pm_pomodoro():
-
-            global ativo_timer
-            
-            stop_pm()
-            sleep(0.65)
-            self.lb_pm_contador.setText(scripts.convert_time(db.get(busca.type == 'pomodoro')['tempo']))
-            ativo_timer = db.get(busca.type == 'pomodoro')['tempo']
-            self.spinBox_pm.setValue(db.get(busca.type == 'pomodoro')['tempo'])
-
-        def btn_pm_shortbreak():
-
-            global ativo_timer
-
-            stop_pm()
-            sleep(0.65)
-            self.lb_pm_contador.setText(scripts.convert_time(db.get(busca.type == 'short-break')['tempo']))
-            ativo_timer = db.get(busca.type == 'short-break')['tempo']
-            self.spinBox_sb.setValue(db.get(busca.type == 'short-break')['tempo'])
-        
-        def btn_pm_longbreak():
-
-            global ativo_timer
-
-            stop_pm()
-            sleep(0.65)
-            self.lb_pm_contador.setText(scripts.convert_time(db.get(busca.type == 'long-break')['tempo']))
-            ativo_timer = db.get(busca.type == 'long-break')['tempo']
-            self.spinBox_lb.setValue(db.get(busca.type == 'long-break')['tempo'])
-
-###################### COUNTDOWN #########################################################################################
-
-        global ativo_ct
-        ativo_ct = 0
-
-        #CONFIG
-        def alterar_config_ct():
-            global iniciador3
-            iniciador3 = False
-            sleep(0.8)
-            self.lb_ct_contador.setText(scripts.convert_time(int(self.spinBox_ct.text())))
-
-        def reset_ct1():
-            global iniciador3
-            iniciador3 = False
-            self.btn_ct_start.setEnabled(True)
-        
-        def reset_ct():
-            global iniciador3
-            iniciador3 = False
-            sleep(0.8)
-            self.lb_ct_contador.setText(scripts.convert_time(int(self.spinBox_ct.text())))
-            self.btn_ct_start.setEnabled(True)
-
-        def stop_ct():
-
-            global iniciador3
-            iniciador3 = False
-            self.btn_ct_start.setEnabled(True)
-        
-        def start_ct(contador):
-
-            reset_timer()
-            reset_pm()
-
-            self.btn_ct_start.setEnabled(False)
-
-            global iniciador3
-            iniciador3 = True
-            h,m,s = map(int, contador.split(":"))
-            total_segundos = h * 3600 + m * 60 + s
-
-            while iniciador3 is True:
-                if total_segundos > 0:
-                    total_segundos -= 1
-                    sleep(1)
-                    self.lb_ct_contador.setText(scripts.convert_ct(total_segundos))
-                else:
-                    if db.get(busca.type == 'alerta')['status'] is True:
-                        scripts.alert()
-                        tray_icon.showMessage('Countdown', 'The time is over!', QSystemTrayIcon.Information, 5000)
-                        break
-                    break
-            else:
-                self.lb_ct_contador.setText(scripts.convert_ct(total_segundos + 1))
-                self.btn_ct_start.setEnabled(True)
-        
-
-tray_icon.show()
-window = MainWindow()
-window.show()
-app.exec()
+if __name__ == "__main__":
+    tray_icon.show()
+    window = MainWindow()
+    window.show()
+    sys.exit(app.exec())
