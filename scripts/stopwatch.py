@@ -23,5 +23,5 @@ class Stopwatch:
     def reset_timer(self):
         # Resete a contagem do temporizador
         self.timer.stop()
-        self.total_segundos = 0
+        self.total_seconds = 0
         self.label.setText("00:00:00")

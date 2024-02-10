@@ -1,45 +1,33 @@
-import sys, shutil, yaml
+import sys, shutil
+from tinydb import TinyDB, Query
 from PyQt5 import QtWidgets
 from PyQt5.QtWidgets import QMessageBox, QFileDialog, QSystemTrayIcon
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import QFileInfo, QTimer
 from assets.interface import Ui_MainWindow
-import scripts
+import scripts, os
+
+current_dir = os.path.dirname(os.path.abspath(__file__))
 
 app = QtWidgets.QApplication(sys.argv)
-tray_icon = QSystemTrayIcon(QIcon('assets/img/icon.ico'), parent=None)
+tray_icon = QSystemTrayIcon(QIcon(os.path.join(current_dir, 'assets', 'img', 'icon.ico')), parent=None)
+
 tray_icon.setToolTip('Snaketimer')
 
-def restart():
-    sys.exit(app.exec())
+config_file_path = os.path.join(current_dir, 'data', 'config-user.json')
 
-def carregar_config():
-    try:
-        with open('data/config-user.yaml', 'r') as file:
-            return yaml.safe_load(file)
-    except FileNotFoundError:
-        QMessageBox.warning(None, "File Not Found", "Config file not found.")
-        sys.exit(1)
-    except yaml.YAMLError as e:
-        QMessageBox.warning(None, "YAML Error", f"Error loading config file: {e}")
-        sys.exit(1)
-    
-def salvar_config(config):
-    try:
-        with open('data/config-user.yaml', 'w') as file:
-            yaml.dump(config, file)
-    except IOError as e:
-        QMessageBox.warning(None, "IO Error", f"Error saving config file: {e}")
+db = TinyDB(config_file_path, indent=4, ensure_ascii=False)
+busca = Query()
 
-configUser = carregar_config()
 dataUser = {
-    'alert': configUser['Pomodoro']['alert'],
-    'autoplay': configUser['Pomodoro']['autoplay'],
-    'filealert': configUser['Pomodoro']['filealert'],
-    'long_break': configUser['Pomodoro']['long_break'],
-    'short_break': configUser['Pomodoro']['short_break'],
-    'pomodoro': configUser['Pomodoro']['time']
+'alert': db.get(busca.type == 'alerta')['status'],
+'autoplay': db.get(busca.type == 'autoplay')['status'],
+'filealert': db.get(busca.type == 'sound')['filename'],
+'long_break': db.get(busca.type == 'long-break')['tempo'],
+'short_break': db.get(busca.type == 'short-break')['tempo'],
+'pomodoro': db.get(busca.type == 'pomodoro')['tempo']
 }
+
 
 class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def __init__(self, *args, obj=None, **kwargs):
@@ -56,7 +44,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         self.pushButton_2.clicked.connect(self.sound_fname)
 
-        self.label_2.setText(configUser['Pomodoro']['filealert'])
+        self.label_2.setText(db.get(busca.type == 'sound')['filename'])
 
         self.timer = QTimer(self)
         self.stopwatch = scripts.Stopwatch(self.lb_st_contador, self.timer)
@@ -67,7 +55,7 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         self.timer.timeout.connect(self.stopwatch.update_timer_label)
 
         self.timer_countdown = QTimer(self)
-        self.countdown = scripts.Countdown(self.lb_ct_contador, self.timer_countdown, dataUser['alert'])
+        self.countdown = scripts.Countdown(self.lb_ct_contador, self.timer_countdown, dataUser['alert'], dataUser['filealert'])
 
         self.btn_ct_start.clicked.connect(self.start_countdown)
         self.btn_ct_stop.clicked.connect(self.countdown.stop_timer)
@@ -83,6 +71,9 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
 
         self.timer_pomodoro = QTimer(self)
         self.pomodoro = scripts.Pomodoro(self.lb_pm_contador, self.timer_pomodoro, dataUser)
+        # Atualiza os valores na classe Pomodoro
+        self.update_pomodoro_values()
+
         self.btn_pm_p1.clicked.connect(lambda: self.pomodoro.trocar_pomodoro(dataUser['pomodoro']))
         self.btn_pm_p2.clicked.connect(lambda: self.pomodoro.trocar_pomodoro(dataUser['short_break']))
         self.btn_pm_p3.clicked.connect(lambda: self.pomodoro.trocar_pomodoro(dataUser['long_break']))
@@ -105,14 +96,30 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
     def set_current_index_4(self):
         self.stackedWidget.setCurrentIndex(4)
 
+    def update_pomodoro_values(self):
+        # Atualiza os valores na classe Pomodoro com os valores atuais do dataUser
+        self.pomodoro.update_values(dataUser)
+
     def sound_fname(self):
-        filelocalname, _ = QFileDialog.getOpenFileName(self, 'Open file','./assets/sound',"Sound files (*.mp3 *.wav)")
-        if filelocalname:
+        filelocalname, _ = QFileDialog.getOpenFileName(self, 'Open file', os.path.join(current_dir, 'assets', 'sound'),"Sound files (*.mp3 *.wav)")
+
+        if filelocalname:  # Verifica se o usuário selecionou um arquivo
             fname = QFileInfo(filelocalname).fileName()
-            shutil.copy(filelocalname, './assets/sound')
-            configUser['Pomodoro']['filealert'] = fname
-            self.label_2.setText(fname)
-            salvar_config(configUser)
+            target_path = os.path.join(current_dir, 'assets', 'sound')
+
+            # Verifica se o arquivo já existe no diretório de destino
+            if os.path.exists(os.path.join(target_path, fname)):
+                db.update({'filename': fname}, busca.type == 'sound')
+                self.label_2.setText(fname)
+            else:
+                # Copia o arquivo para o diretório de destino
+                shutil.copy(filelocalname, target_path)
+                db.update({'filename': fname}, busca.type == 'sound')
+                dataUser.update({'filealert': fname})
+                self.label_2.setText(fname)
+        else:
+            QMessageBox.warning(self, "No File Selected", "No file selected.")
+
 
     def start_countdown(self):
         self.countdown.start_timer(scripts.convert_to_seconds(self.lb_ct_contador.text()))
@@ -134,20 +141,28 @@ class MainWindow(QtWidgets.QMainWindow, Ui_MainWindow):
         cb_autoplay_value = self.checkBox_autoplay.isChecked()
 
         try:
-            configUser['Pomodoro']['time'] = pomodoro_value
+            db.update({'tempo': pomodoro_value}, busca.type == 'pomodoro')
             self.lb_pm_contador.setText(scripts.convert_time(pomodoro_value))
-            configUser['Pomodoro']['short_break'] = sb_value
-            configUser['Pomodoro']['long_break'] = lb_value
-            configUser['Pomodoro']['alert'] = cb_alert_value
-            configUser['Pomodoro']['autoplay'] = cb_autoplay_value
+            db.update({'tempo': sb_value}, busca.type == 'short-break')
+            db.update({'tempo': lb_value}, busca.type == 'long-break')
+            db.update({'status': cb_alert_value}, busca.type == 'alerta')
+            db.update({'status': cb_autoplay_value}, busca.type == 'autoplay')
 
             self.spinBox_pm.setValue(pomodoro_value)
             self.spinBox_lb.setValue(lb_value)
             self.spinBox_sb.setValue(sb_value)
 
-            salvar_config(configUser)
-            QMessageBox.information(self, "Update data", "Saved successfully. Restarting application...")
-            restart()
+            
+            dataUser.update({
+                'alert': cb_alert_value,
+                'autoplay': cb_autoplay_value,
+                'long_break': lb_value,
+                'short_break': sb_value,
+                'pomodoro': pomodoro_value
+            })
+
+            self.update_pomodoro_values()
+            QMessageBox.information(self, "Update data", "Saved successfully!")
 
         except ValueError as e:
             QMessageBox.warning(self, "Value Error", f"Invalid value: {e}")

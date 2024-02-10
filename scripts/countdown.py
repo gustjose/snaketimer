@@ -3,9 +3,10 @@ from scripts.support import convert_ct
 from scripts.notification import alert
 
 class Countdown:
-    def __init__(self, label, timer, alert):
+    def __init__(self, label, timer, alert, filealert):
         self.label = label
         self.alert = alert
+        self.filealert = filealert
         self.total_seconds = 0
         self.timer = timer
         self.timer.timeout.connect(self.update_timer_label)
@@ -15,7 +16,7 @@ class Countdown:
         if self.total_seconds > 0:
             self.total_seconds -= 1
         else:
-            if self.alert: alert()
+            if self.alert: alert(self.filealert)
             self.timer.stop()
 
     def start_timer(self, tempo):

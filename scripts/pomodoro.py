@@ -1,11 +1,6 @@
-import yaml
 from PyQt5.QtCore import QTimer
 from scripts.support import convert_ct, convert_time
 from scripts.notification import alert, notify
-
-# Carregando os valores do arquivo YAML
-with open('data/config-user.yaml', 'r') as file:
-    configUser = yaml.safe_load(file)
 
 class Pomodoro:
     def __init__(self, label, timer, data):
@@ -19,6 +14,7 @@ class Pomodoro:
         self.state = 'pomodoro'  # Estado inicial é pomodoro
         self.cycles_completed = 0  # Número de ciclos completos
 
+        self.filealert = data['filealert']
         self.autoplay = data['autoplay']
         self.pomodoro_duration = data['pomodoro'] * 60
         self.short_break_duration = data['short_break'] * 60
@@ -35,7 +31,7 @@ class Pomodoro:
                 else:
                     self.cycles_completed = 0
                     self.timer.stop()
-                    if self.alert: alert()
+                    if self.alert: alert(self.filealert)
             else:
                 self.timer.stop()
     
@@ -107,3 +103,12 @@ class Pomodoro:
                 self.state = 'short_break'
             elif tempo == self.data['long_break']:
                 self.state = 'long_break'
+        
+    def update_values(self, dataUser):
+        self.data = dataUser
+        self.alert = dataUser['alert']
+        self.filealert = dataUser['filealert']
+        self.autoplay = dataUser['autoplay']
+        self.pomodoro_duration = dataUser['pomodoro'] * 60
+        self.short_break_duration = dataUser['short_break'] * 60
+        self.long_break_duration = dataUser['long_break'] * 60

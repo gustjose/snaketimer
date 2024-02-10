@@ -1,22 +1,31 @@
 import pygame
 import threading
-import yaml
 import pynotifier
 from pynotifier.backends import platform
+import os
 
-# Carregando os valores do arquivo YAML
-with open('data/config-user.yaml', 'r') as file:
-    configUser = yaml.safe_load(file)
+current_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..')
 
-def play_alert_sound():
+def play_alert_sound(filename):
     pygame.init()
-    pygame.mixer.music.load(f"./assets/sound/{configUser['Pomodoro']['filealert']}")
-    pygame.mixer.music.play()
-    while pygame.mixer.music.get_busy(): 
-        pygame.time.Clock().tick(10)
 
-def alert():
-    sound_thread = threading.Thread(target=play_alert_sound)
+    sound_path = os.path.join(current_dir, 'assets', 'sound', filename)
+    
+    # Verifica se o arquivo de som existe
+    if os.path.exists(sound_path):
+        pygame.mixer.music.load(sound_path)
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy(): 
+            pygame.time.Clock().tick(10)
+    else:
+        pygame.mixer.music.load(os.path.join(current_dir, 'assets', 'sound', 'beep.mp3'))
+        pygame.mixer.music.play()
+        while pygame.mixer.music.get_busy(): 
+            pygame.time.Clock().tick(10)
+
+
+def alert(filename):
+    sound_thread = threading.Thread(target=play_alert_sound(filename))
     sound_thread.start()
 
 def notify(title: str, message: str):
@@ -26,7 +35,7 @@ def notify(title: str, message: str):
     notification = pynotifier.Notification(
         title=title,
         message=message,
-        icon_path="assets/img/icon.ico",
+        icon_path=os.path.join(current_dir, 'assets', 'img', 'icon.ico'),
         duration=20,
         keep_alive=True,
         threaded=True
